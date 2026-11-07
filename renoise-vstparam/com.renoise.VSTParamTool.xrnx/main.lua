@@ -9,7 +9,7 @@ Installation:
 3. Access via Tools menu: "VST3 Parameter Tool"
 
 Output files:
-- /tmp/opencode/vst3_params.json     Full parameter dump (JSON, all devices)
+- /tmp/opencode/vst3_params.json     Full parameter dump (JSON)
 - /tmp/opencode/vst3_params_summary.txt Human-readable summary
 --]]
 
@@ -66,6 +66,16 @@ local function json_encode(t)
 end
 
 -- -----------------------------------------------------------------------------
+-- Get parameter count safely (handles nil)
+-- -----------------------------------------------------------------------------
+local function safe_param_count(device)
+  if device and device.parameters then
+    return #device.parameters
+  end
+  return 0
+end
+
+-- -----------------------------------------------------------------------------
 -- Collect ALL devices from ALL tracks AND instruments
 -- -----------------------------------------------------------------------------
 local function collect_all_devices()
@@ -83,7 +93,7 @@ local function collect_all_devices()
         device_name = device.name,
         device_path = tostring(device.device_path),
         is_active = device.is_active,
-        parameter_count = #device.parameters,
+        parameter_count = safe_param_count(device),
         is_instrument = false,
         instrument_index = nil,
         chain_index = nil,
@@ -91,15 +101,13 @@ local function collect_all_devices()
     end
   end
 
-
-
   -- Instruments (their sample device chains)
   for i_idx, instrument in ipairs(song.instruments) do
     local chains = instrument.sample_device_chains
     if chains and #chains > 0 then
       for c_idx = 1, #chains do
         local chain = instrument:sample_device_chain(c_idx)
-        if chain and #chain.devices > 0 then
+        if chain and chain.devices then
           for d_idx, device in ipairs(chain.devices) do
             table.insert(all_devices, {
               track_index = -1000 - i_idx,
@@ -109,7 +117,7 @@ local function collect_all_devices()
               device_name = device.name,
               device_path = tostring(device.device_path),
               is_active = device.is_active,
-              parameter_count = #device.parameters,
+              parameter_count = safe_param_count(device),
               is_instrument = true,
               instrument_index = i_idx,
               chain_index = c_idx,
@@ -133,7 +141,7 @@ local function get_selected_device()
 
   -- Try track device first
   local track = song.selected_track
-  if track and #track.devices > 0 then
+  if track and track.devices and #track.devices > 0 then
     local idx = song.selected_device_index
     if idx and idx >= 1 and idx <= #track.devices then
       return {
@@ -157,8 +165,7 @@ local function get_selected_device()
         chain_idx = 1
       end
       local chain = instrument:sample_device_chain(chain_idx)
-      if chain and #chain.devices > 0 then
-        -- Try selected_device_index on instrument chain too
+      if chain and chain.devices and #chain.devices > 0 then
         local idx = song.selected_device_index
         local dev_idx = (idx and idx >= 1 and idx <= #chain.devices) and idx or 1
         return {
@@ -180,14 +187,14 @@ end
 -- Export full parameter data for a single device to JSON
 -- -----------------------------------------------------------------------------
 local function export_device_json(device, filepath)
-  local params = device.parameters
+  local params = device.parameters or {}
   local data = {
     plugin_name = device.name,
     device_path = tostring(device.device_path),
     is_active = device.is_active,
     parameter_count = #params,
-    presets = device.presets,
-    active_preset = device.active_preset,
+    presets = device.presets or {},
+    active_preset = device.active_preset or 0,
     parameters = {}
   }
 
@@ -226,7 +233,7 @@ local function export_all_devices_json(all_devices, filepath)
 
   for _, entry in ipairs(all_devices) do
     local device = entry.device
-    local params = device.parameters
+    local params = device.parameters or {}
     local dev_data = {
       track_index = entry.track_index,
       track_name = entry.track_name,
@@ -235,8 +242,8 @@ local function export_all_devices_json(all_devices, filepath)
       device_path = entry.device_path,
       is_active = entry.is_active,
       parameter_count = entry.parameter_count,
-      presets = device.presets,
-      active_preset = device.active_preset,
+      presets = device.presets or {},
+      active_preset = device.active_preset or 0,
       parameters = {}
     }
 
@@ -271,13 +278,13 @@ end
 -- Human-readable summary for a single device
 -- -----------------------------------------------------------------------------
 local function export_summary(device, filepath)
-  local params = device.parameters
+  local params = device.parameters or {}
   local lines = {}
   table.insert(lines, string.format("=== Device: %s ===", device.name))
   table.insert(lines, string.format("  Path: %s", tostring(device.device_path)))
   table.insert(lines, string.format("  Parameters: %d", #params))
-  table.insert(lines, string.format("  Presets: %s", table.concat(device.presets, ", ")))
-  table.insert(lines, string.format("  Active preset: %d", device.active_preset))
+  table.insert(lines, string.format("  Presets: %s", table.concat(device.presets or {}, ", ")))
+  table.insert(lines, string.format("  Active preset: %d", device.active_preset or 0))
   table.insert(lines, "")
   table.insert(lines, string.format("%-5s %-40s %-10s %-12s %-12s %-12s %-10s %-10s",
     "Idx", "Name", "Value", "Min", "Max", "Default", "Quantum", "Auto?"))
@@ -302,7 +309,7 @@ end
 -- mapping = { {name="Filter Cutoff", value=0.7}, ... }
 -- -----------------------------------------------------------------------------
 local function apply_parameters(device, mapping)
-  local params = device.parameters
+  local params = device.parameters or {}
   local applied = 0
   local results = {}
 
@@ -377,7 +384,7 @@ local function dump_all_devices()
   table.insert(lines, "Exported to: " .. JSON_FILE)
   table.insert(lines, "")
   table.insert(lines, "Classify preset type with the Python pipeline:")
-  table.insert(lines, "  python3 vst3_preset_pipeline.py --input " .. JSON_FILE .. " --classify --search --suggest")
+  table.insert(lines, "  vstpreset --input " .. JSON_FILE .. " --classify --search --suggest")
 
   local output = table.concat(lines, "\n")
   local display = output:sub(1, 3000)
@@ -403,7 +410,7 @@ local function dump_selected_device()
   if result.track_name then
     dump = dump .. string.format("Track: %s\n", result.track_name)
   end
-  dump = dump .. string.format("Parameters: %d\n", #device.parameters)
+  dump = dump .. string.format("Parameters: %d\n", #(device.parameters or {}))
   dump = dump .. string.format("Exported to %s\n", JSON_FILE)
 
   show_prompt("Device: " .. device.name, dump)

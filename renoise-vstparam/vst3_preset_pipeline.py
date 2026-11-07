@@ -33,23 +33,86 @@ def load_parameters(filepath):
 
 
 def param_summary(data):
-    """Return a human-readable summary of parameters for the LLM."""
-    lines = [
-        f"Plugin: {data.get('plugin_name', 'unknown')}",
-        f"Parameter count: {data.get('parameter_count', 0)}",
-        f"Presets: {', '.join(data.get('presets', []))}",
-        "",
-        "Parameters (name, current value, min, max, default):",
-    ]
-    for p in data.get("parameters", []):
-        if not p.get("is_automatable", True):
-            continue  # skip non-automatable for brevity
-        lines.append(
-            f"  {p['name']}: {p['value']:.3f} "
-            f"(range {p['value_min']:.3f}-{p['value_max']:.3f}, "
-            f"default {p['value_default']:.3f})"
-        )
+    """Return a human-readable summary of parameters for the LLM.
+
+    Handles both single-device JSON (from 'Dump Selected Device'):
+        {"plugin_name": "...", "parameters": [...]}
+    and multi-device JSON (from 'Dump All Devices'):
+        {"total_devices": N, "devices": [{"device_name": "...", "parameters": [...]}, ...]}
+    """
+    lines = []
+
+    # Determine if multi-device format
+    devices = data.get("devices")
+    if devices and len(devices) > 0:
+        # Multi-device format
+        lines.append(f"Total devices: {data.get('total_devices', len(devices))}")
+        for dev in devices[:5]:  # Limit to first 5 for LLM context
+            lines.append(f"\nDevice: {dev.get('device_name', 'unknown')}")
+            lines.append(f"  Track: {dev.get('track_name', 'unknown')}")
+            lines.append(f"  Parameters: {dev.get('parameter_count', 0)}")
+            lines.append("  Parameters (name, value, min, max, default):")
+            for p in dev.get("parameters", [])[:20]:  # Limit params per device
+                if not p.get("is_automatable", True):
+                    continue
+                lines.append(
+                    f"    {p['name']}: {p['value']:.3f} "
+                    f"(range {p['value_min']:.3f}-{p['value_max']:.3f}, "
+                    f"default {p['value_default']:.3f})"
+                )
+        if len(devices) > 5:
+            lines.append(f"\n... and {len(devices) - 5} more devices")
+    else:
+        # Single-device format
+        lines.append(f"Plugin: {data.get('plugin_name', 'unknown')}")
+        lines.append(f"Parameter count: {data.get('parameter_count', 0)}")
+        lines.append(f"Presets: {', '.join(data.get('presets', []))}")
+        lines.append("")
+        lines.append("Parameters (name, current value, min, max, default):")
+        for p in data.get("parameters", []):
+            if not p.get("is_automatable", True):
+                continue
+            lines.append(
+                f"  {p['name']}: {p['value']:.3f} "
+                f"(range {p['value_min']:.3f}-{p['value_max']:.3f}, "
+                f"default {p['value_default']:.3f})"
+            )
     return "\n".join(lines)
+
+
+def classify_preset(data, model=OLLAMA_MODEL):
+    """Ask the LLM what preset type this plugin configuration represents."""
+    summary = param_summary(data)
+
+    # Determine plugin name for prompt
+    devices = data.get("devices")
+    if devices and len(devices) > 0:
+        plugin_name = devices[0].get("device_name", "unknown plugin")
+    else:
+        plugin_name = data.get("plugin_name", "unknown plugin")
+
+    prompt = f"""You are a sound design expert. Analyze the following VST3 plugin parameters and classify the preset type.
+
+Plugin: {plugin_name}
+{summary}
+
+Classify this preset into ONE of these categories:
+- pad: slow attack, long release, sustained, atmospheric
+- lead: fast attack, bright, resonant, melodic
+- bass: low frequency, punchy, sub-heavy
+- drum: percussive, short decay, rhythmic
+- arp: arpeggiated, rhythmic, repeating
+- fx: sound effects, risers, impacts, transitions
+- pluck: short decay, plucked string-like
+- keys: piano/organ-like keyboard sound
+- ambient: evolving, textural, spacious
+- other: anything else
+
+Respond with ONLY the category name (lowercase), followed by a brief one-sentence justification.
+Example:
+lead
+Bright filter with fast attack envelope, suitable for melodic lines.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +180,19 @@ Bright filter with fast attack envelope, suitable for melodic lines.
 
 
 def heuristic_classify(data):
-    """Fallback classification based on parameter names."""
-    names = " ".join(p["name"].lower() for p in data.get("parameters", []))
+    """Fallback classification based on parameter names.
+
+    Handles both single-device and multi-device JSON formats.
+    """
+    names = ""
+    devices = data.get("devices")
+    if devices and len(devices) > 0:
+        for dev in devices:
+            for p in dev.get("parameters", []):
+                names += " " + p.get("name", "").lower()
+    else:
+        for p in data.get("parameters", []):
+            names += " " + p.get("name", "").lower()
 
     # Check for pad indicators
     pad_indicators = ["attack", "release", "sustain", "filter", "env", "amp"]
@@ -198,25 +272,46 @@ def suggest_parameters(data, preset_type, search_results):
     """
     Use the LLM to map generic preset settings to this plugin's parameters.
     Returns a list of {name, value, reason} mappings.
-    """
-    param_list = []
-    for p in data.get("parameters", []):
-        if not p.get("is_automatable", True):
-            continue
-        param_list.append(
-            f"  {p['name']}: current={p['value']:.3f}, "
-            f"range=[{p['value_min']:.3f}, {p['value_max']:.3f}], "
-            f"default={p['value_default']:.3f}"
-        )
 
-    params_text = "\n".join(param_list)
+    Handles both single-device and multi-device JSON formats.
+    """
+    # Collect parameters from all devices (multi-device) or single device
+    params_list = []
+    plugin_name = "unknown plugin"
+
+    devices = data.get("devices")
+    if devices and len(devices) > 0:
+        # Multi-device format - use first device's name for plugin context
+        plugin_name = devices[0].get("device_name", "unknown plugin")
+        for dev in devices:
+            for p in dev.get("parameters", []):
+                if not p.get("is_automatable", True):
+                    continue
+                params_list.append(
+                    f"  {p['name']}: current={p['value']:.3f}, "
+                    f"range=[{p['value_min']:.3f}, {p['value_max']:.3f}], "
+                    f"default={p['value_default']:.3f}"
+                )
+    else:
+        # Single-device format
+        plugin_name = data.get("plugin_name", "unknown plugin")
+        for p in data.get("parameters", []):
+            if not p.get("is_automatable", True):
+                continue
+            params_list.append(
+                f"  {p['name']}: current={p['value']:.3f}, "
+                f"range=[{p['value_min']:.3f}, {p['value_max']:.3f}], "
+                f"default={p['value_default']:.3f}"
+            )
+
+    params_text = "\n".join(params_list)
 
     # Summarize search results
     search_text = ""
     for r in search_results[:5]:
         search_text += f"- {r['title']}: {r['url']}\n"
 
-    prompt = f"""You are a sound design expert. I have a VST3 plugin "{data.get('plugin_name', 'unknown')}"
+    prompt = f"""You are a sound design expert. I have a VST3 plugin "{plugin_name}"
 and I want to create a "{preset_type}" preset.
 
 The plugin has these automatable parameters:
@@ -276,9 +371,23 @@ Only include parameters you are confident about. If unsure about a parameter, le
 
 
 def heuristic_suggest(data, preset_type):
-    """Fallback: generic suggestions based on preset type and parameter names."""
+    """Fallback: generic suggestions based on preset type and parameter names.
+
+    Handles both single-device and multi-device JSON formats.
+    """
     suggestions = []
-    for p in data.get("parameters", []):
+
+    # Collect all automatable parameters from all devices
+    devices = data.get("devices")
+    if devices and len(devices) > 0:
+        all_params = []
+        for dev in devices:
+            for p in dev.get("parameters", []):
+                all_params.append(p)
+    else:
+        all_params = data.get("parameters", [])
+
+    for p in all_params:
         if not p.get("is_automatable", True):
             continue
         name_lower = p["name"].lower()

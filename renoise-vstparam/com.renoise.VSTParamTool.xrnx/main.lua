@@ -132,22 +132,27 @@ local function collect_all_devices()
 
   -- Instruments (their sample device chains)
   for i_idx, instrument in ipairs(song.instruments) do
-    local sample_chain = instrument.sample_device_chain
-    if sample_chain then
-      for d_idx, device in ipairs(sample_chain.devices) do
-        table.insert(all_devices, {
-          track_index = -1000 - i_idx,
-          track_name = "Instrument: " .. instrument.name,
-          device_index = d_idx,
-          device = device,
-          device_name = device.name,
-          device_path = tostring(device.device_path),
-          is_active = device.is_active,
-          parameter_count = #device.parameters,
-          is_instrument = true,
-          instrument_index = i_idx,
-          chain_index = 1,
-        })
+    local chains = instrument.sample_device_chains
+    if chains and #chains > 0 then
+      for c_idx = 1, #chains do
+        local chain = instrument:sample_device_chain(c_idx)
+        if chain and #chain.devices > 0 then
+          for d_idx, device in ipairs(chain.devices) do
+            table.insert(all_devices, {
+              track_index = -1000 - i_idx,
+              track_name = "Instrument: " .. instrument.name .. " (chain " .. c_idx .. ")",
+              device_index = d_idx,
+              device = device,
+              device_name = device.name,
+              device_path = tostring(device.device_path),
+              is_active = device.is_active,
+              parameter_count = #device.parameters,
+              is_instrument = true,
+              instrument_index = i_idx,
+              chain_index = c_idx,
+            })
+          end
+        end
       end
     end
   end
@@ -182,20 +187,26 @@ local function get_selected_device()
   -- Try instrument device chain
   local instrument = song.selected_instrument
   if instrument then
-    local chain_idx = song.selected_sample_device_chain_index or 1
-    local chain = instrument:sample_device_chain(chain_idx)
-    if chain and #chain.devices > 0 then
-      -- Try selected_device_index on instrument chain too
-      local idx = song.selected_device_index
-      local dev_idx = (idx and idx >= 1 and idx <= #chain.devices) and idx or 1
-      return {
-        device = chain.devices[dev_idx],
-        context = "instrument",
-        track_index = nil,
-        track_name = "Instrument: " .. instrument.name,
-        instrument_index = song.selected_instrument_index,
-        chain_index = chain_idx,
-      }
+    local chains = instrument.sample_device_chains
+    if chains and #chains > 0 then
+      local chain_idx = song.selected_sample_device_chain_index
+      if not chain_idx or chain_idx < 1 or chain_idx > #chains then
+        chain_idx = 1
+      end
+      local chain = instrument:sample_device_chain(chain_idx)
+      if chain and #chain.devices > 0 then
+        -- Try selected_device_index on instrument chain too
+        local idx = song.selected_device_index
+        local dev_idx = (idx and idx >= 1 and idx <= #chain.devices) and idx or 1
+        return {
+          device = chain.devices[dev_idx],
+          context = "instrument",
+          track_index = nil,
+          track_name = "Instrument: " .. instrument.name,
+          instrument_index = song.selected_instrument_index,
+          chain_index = chain_idx,
+        }
+      end
     end
   end
 

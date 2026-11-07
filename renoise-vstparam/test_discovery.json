@@ -1,0 +1,18 @@
+{
+  "plugin_name": "Discovery",
+  "device_path": "discoDSP/Discovery",
+  "is_active": true,
+  "parameter_count": 5,
+  "presets": ["Init", "Pad", "Lead", "Bass"],
+  "active_preset": 0,
+  "parameters": [
+    {"index": 1, "name": "A:Amp_Attack", "value": 0.0, "value_min": 0.0, "value_max": 1.0, "value_default": 0.0, "value_quantum": 0.001, "is_automatable": true, "polarity": "POLARITY_UNIPOLAR", "value_string": "0"},
+    {"index": 2, "name": "A:Amp_Decay", "value": 0.0, "value_min": 0.0, "value_max": 1.0, "value_default": 0.0, "value_quantum": 0.001, "is_automatable": true, "polarity": "POLARITY_UNIPOLAR", "value_string": "0"},
+    {"index": 3, "name": "A:Amp_Sustain", "value": 0.0, "value_min": 0.0, "value_max": 1.0, "value_default": 0.0, "value_quantum": 0.001, "is_automatable": true, "polarity": "POLARITY_UNIPOLAR", "value_string": "0"},
+    {"index": 4, "name": "A:Amp_Release", "value": 0.0, "value_min": 0.0, "value_max": 1.0, "value_default": 0.0, "value_quantum": 0.001, "is_automatable": true, "polarity": "POLARITY_UNIPOLAR", "value_string": "0"},
+    {"index": 5, "name": "A:Amp_Gain", "value": 0.0, "value_min": 0.0, "value_max": 1.0, "value_default": 0.0, "value_quantum": 0.001, "is_automatable": true, "polarity": "POLARITY_UNIPOLAR", "value_string": "0"},
+    {"index": 6, "name": "A:Fil_Freq", "value": 0.0, "value_min": 0.0, "value_max": 1.0, "value_default": 0.0, "value_quantum": 0.001, "is_automatable": true, "polarity": "POLARITY_UNIPOLAR", "value_string": "0"},
+    {"index": 7, "name": "A:Fil_Resonance", "value": 0.0, "value_min": 0.0, "value_max": 1.0, "value_default": 0.0, "value_quantum": 0.001, "is_automatable": true, "polarity": "POLARITY_UNIPOLAR", "value_string": "0"},
+    {"index": 8, "name": "A:Osc_Mix", "value": 0.0, "value_min": 0.0, "value_max": 1.0, "value_default": 0.0, "value_quantum": 0.001, "is_automatable": true, "polarity": "POLARITY_UNIPOLAR", "value_string": "0"}
+  ]
+}

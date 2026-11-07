@@ -62,6 +62,17 @@ Preset format (`paramID value`, one per line, `#` comments ignored):
 - Parameter IDs are per-plugin; a preset made for one plugin will not apply to another.
 - "Pad" vs "lead" target values are sound-design knowledge you supply — the tool gives you read/write access to every parameter.
 
+## Renoise VST3 Preset Pipeline (LLM + Web Search)
+
+For plugins that don't load headless (u-he Diva, vstbridge/Roland plugins, etc.), use the Renoise Lua pipeline in `renoise-vstparam/`:
+
+- **`renoise-vstparam/VSTParamTool.xrnx`** — Installable Renoise tool (export parameters to JSON, apply presets)
+- **`renoise-vstparam/vst3_preset_pipeline.py`** — Python pipeline: classify preset type (pad/lead/drum/…), search the web, suggest parameter values
+- **`renoise-vstparam/vst3_param_console.lua`** — Renoise console script for direct Lua control
+- **`renoise-vstparam/run_pipeline.sh`** — End-to-end runner
+
+Renoise is a full VST3 host that loads u-he and vstbridge plugins, and its Lua API gives complete read/write access to all plugin parameters.
+
 ## License
 
 MIT

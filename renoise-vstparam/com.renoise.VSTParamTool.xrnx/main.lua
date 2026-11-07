@@ -17,6 +17,14 @@ local JSON_FILE = "/tmp/opencode/vst3_params.json"
 local SUMMARY_FILE = "/tmp/opencode/vst3_params_summary.txt"
 
 -- -----------------------------------------------------------------------------
+-- show_prompt wrapper (Renoise requires a buttons table as 4th arg)
+-- -----------------------------------------------------------------------------
+local function show_prompt(title, message, buttons)
+  local btns = buttons or {"OK"}
+  renoise.app():show_prompt(title, message, btns)
+end
+
+-- -----------------------------------------------------------------------------
 -- JSON encoding helper (minimal, no external library needed)
 -- -----------------------------------------------------------------------------
 local function json_escape(s)
@@ -223,7 +231,7 @@ end
 local function list_and_dump_devices()
   local devices = get_available_devices()
   if #devices == 0 then
-    renoise.app():show_prompt("No Devices",
+    show_prompt("No Devices",
       "No VST3/AudioUnit devices found.\nScan plugins in Preferences > Plug-ins.")
     return
   end
@@ -253,13 +261,13 @@ local function list_and_dump_devices()
   local output = table.concat(lines, "\n")
   local display = output:sub(1, 2500)
   if #output > 2500 then display = display .. "\n... (see " .. SUMMARY_FILE .. ")" end
-  renoise.app():show_prompt("VST3 Devices", display)
+  show_prompt("VST3 Devices", display)
 end
 
 local function dump_selected_device()
   local device = get_selected_device()
   if not device then
-    renoise.app():show_prompt("No Device",
+    show_prompt("No Device",
       "No device selected. Select a device in the device chain first.")
     return
   end
@@ -272,7 +280,7 @@ local function dump_selected_device()
   dump = dump .. string.format("Parameters: %d\n", #device.parameters)
   dump = dump .. string.format("Exported to %s\n", JSON_FILE)
 
-  renoise.app():show_prompt("Device: " .. device.name, dump)
+  show_prompt("Device: " .. device.name, dump)
 end
 
 -- Apply a preset mapping from JSON file
@@ -280,13 +288,13 @@ end
 local function apply_preset_from_json(filepath)
   local device = get_selected_device()
   if not device then
-    renoise.app():show_prompt("No Device", "No device selected.")
+    show_prompt("No Device", "No device selected.")
     return
   end
 
   local f = io.open(filepath, "r")
   if not f then
-    renoise.app():show_prompt("Error", "Cannot open file: " .. filepath)
+    show_prompt("Error", "Cannot open file: " .. filepath)
     return
   end
   local content = f:read("*all")
@@ -311,7 +319,7 @@ local function apply_preset_from_json(filepath)
     msg = msg .. results[i] .. "\n"
   end
   if #results > 30 then msg = msg .. "...\n" end
-  renoise.app():show_prompt("Apply Preset Result", msg)
+  show_prompt("Apply Preset Result", msg)
 end
 
 -- -----------------------------------------------------------------------------

@@ -91,25 +91,7 @@ local function collect_all_devices()
     end
   end
 
-  -- Master track
-  local master = song.master_track
-  if master then
-    for d_idx, device in ipairs(master.devices) do
-      table.insert(all_devices, {
-        track_index = 0,
-        track_name = "Master",
-        device_index = d_idx,
-        device = device,
-        device_name = device.name,
-        device_path = tostring(device.device_path),
-        is_active = device.is_active,
-        parameter_count = #device.parameters,
-        is_instrument = false,
-        instrument_index = nil,
-        chain_index = nil,
-      })
-    end
-  end
+
 
   -- Instruments (their sample device chains)
   for i_idx, instrument in ipairs(song.instruments) do

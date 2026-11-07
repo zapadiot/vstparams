@@ -201,6 +201,22 @@ local function apply_parameters(device, mapping)
 end
 
 -- -----------------------------------------------------------------------------
+-- Get the currently selected device from the song
+-- -----------------------------------------------------------------------------
+local function get_selected_device()
+  local song = renoise.song()
+  local track = song.selected_track
+  if not track or #track.devices == 0 then
+    return nil
+  end
+  local idx = song.selected_device_index
+  if idx and idx >= 1 and idx <= #track.devices then
+    return track.devices[idx]
+  end
+  return nil
+end
+
+-- -----------------------------------------------------------------------------
 -- Menu Actions
 -- -----------------------------------------------------------------------------
 
@@ -241,7 +257,7 @@ local function list_and_dump_devices()
 end
 
 local function dump_selected_device()
-  local device = renoise.device()
+  local device = get_selected_device()
   if not device then
     renoise.app():show_prompt("No Device",
       "No device selected. Select a device in the device chain first.")
@@ -262,7 +278,7 @@ end
 -- Apply a preset mapping from JSON file
 -- File format: { [{"name": "Param Name", "value": 0.5}, ...] }
 local function apply_preset_from_json(filepath)
-  local device = renoise.device()
+  local device = get_selected_device()
   if not device then
     renoise.app():show_prompt("No Device", "No device selected.")
     return

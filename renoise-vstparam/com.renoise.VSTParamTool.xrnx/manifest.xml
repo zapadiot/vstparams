@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Tool>
+<RenoiseScriptingTool doc_version="0">
+  <ApiVersion>6.2</ApiVersion>
   <Id>com.renoise.VSTParamTool</Id>
-  <Name>VST3 Parameter Tool</Name>
-  <Description>Read, write, and save VST3 plugin parameters via Renoise's Lua API</Description>
   <Version>1.0.0</Version>
-  <APIVersion>5</APIVersion>
   <Author>vstparam</Author>
-  <URL>https://github.com/zapadiot/vstparam</URL>
-  <File>Main.lua</File>
-  <Icon></Icon>
-</Tool>
+  <Name>VST3 Parameter Tool</Name>
+  <Category>Tools</Category>
+  <Description>Read, write, and save VST3 plugin parameters via Renoise's Lua API.</Description>
+  <Homepage>https://github.com/zapadiot/vstparams</Homepage>
+</RenoiseScriptingTool>

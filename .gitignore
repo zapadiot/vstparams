@@ -1,0 +1,21 @@
+# Compiled binaries
+vstparam
+*.o
+*.a
+*.so
+
+# Build artifacts
+build/
+cmake-build-*/
+Debug/
+Release/
+x64/
+
+# Presets (user-generated)
+*.txt
+*.vstpreset
+*.preset
+
+# OS
+.DS_Store
+Thumbs.db

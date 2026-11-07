@@ -1,0 +1,12 @@
+#!/bin/bash
+# VST3 Preset Pipeline wrapper
+# Classifies VST3 preset type (pad/lead/drum/etc.), searches web, adapts params
+#
+# Usage:
+#   vstpreset --input /tmp/opencode/vst3_params.json --classify --search --suggest
+#   vstpreset -i params.json -c -s -S -o mypreset.json
+
+SCRIPT_DIR="/tmp/opencode/renoise-vstparam"
+PIPELINE="$SCRIPT_DIR/vst3_preset_pipeline.py"
+
+exec python3 "$PIPELINE" "$@"

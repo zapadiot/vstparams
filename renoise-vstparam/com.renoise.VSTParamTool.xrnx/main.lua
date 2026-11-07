@@ -339,7 +339,7 @@ renoise.tool():add_menu_entry {
 renoise.tool():add_menu_entry {
   name = "Main Menu:Tools:VST3 Parameter Tool:Apply Preset from JSON",
   invoke = function()
-    local path = renoise.app():prompt_for_filename("Select preset JSON", "/tmp/opencode/", "json")
+    local path = renoise.app():prompt_for_filename_to_read("json", "Select preset JSON")
     if path then apply_preset_from_json(path) end
   end
 }

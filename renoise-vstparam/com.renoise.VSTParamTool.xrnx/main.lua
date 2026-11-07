@@ -4,12 +4,12 @@ Reads, writes, and saves VST3 plugin parameters via Renoise's Lua API.
 Exports full parameter data to JSON for AI classification and preset adaptation.
 
 Installation:
-1. Copy this .xrnx file to ~/.config/Renoise/V3.5.4/Scripts/Tools/
-2. Start Renoise
+1. Copy com.renoise.VSTParamTool.xrnx/ to ~/.config/Renoise/V3.5.4/Scripts/Tools/
+2. Start (or restart) Renoise
 3. Access via Tools menu: "VST3 Parameter Tool"
 
 Output files:
-- /tmp/opencode/vst3_params.json     Full parameter dump (JSON)
+- /tmp/opencode/vst3_params.json     Full parameter dump (JSON, all devices)
 - /tmp/opencode/vst3_params_summary.txt Human-readable summary
 --]]
 
@@ -66,34 +66,110 @@ local function json_encode(t)
 end
 
 -- -----------------------------------------------------------------------------
--- Get all available VST3/AudioUnit device paths
+-- Collect ALL devices from ALL tracks (including master and send tracks)
 -- -----------------------------------------------------------------------------
-local function get_available_devices()
+local function collect_all_devices()
   local song = renoise.song()
-  local tracks = song.tracks
-  local devices = {}
-  if #tracks > 0 then
-    local avail = tracks[1].available_devices
-    for _, path in ipairs(avail) do
-      table.insert(devices, path)
+  local all_devices = {}
+
+  -- Regular tracks
+  for t_idx, track in ipairs(song.tracks) do
+    for d_idx, device in ipairs(track.devices) do
+      table.insert(all_devices, {
+        track_index = t_idx,
+        track_name = track.name,
+        device_index = d_idx,
+        device = device,
+        device_name = device.name,
+        device_path = tostring(device.device_path),
+        is_active = device.is_active,
+        parameter_count = #device.parameters,
+        is_instrument = false,
+      })
     end
   end
-  return devices
+
+  -- Send tracks
+  for s_idx, track in ipairs(song.send_tracks) do
+    for d_idx, device in ipairs(track.devices) do
+      table.insert(all_devices, {
+        track_index = -s_idx, -- negative = send track
+        track_name = "Send " .. s_idx,
+        device_index = d_idx,
+        device = device,
+        device_name = device.name,
+        device_path = tostring(device.device_path),
+        is_active = device.is_active,
+        parameter_count = #device.parameters,
+        is_instrument = false,
+      })
+    end
+  end
+
+  -- Master track
+  local master = song.master_track
+  if master then
+    for d_idx, device in ipairs(master.devices) do
+      table.insert(all_devices, {
+        track_index = 0,
+        track_name = "Master",
+        device_index = d_idx,
+        device = device,
+        device_name = device.name,
+        device_path = tostring(device.device_path),
+        is_active = device.is_active,
+        parameter_count = #device.parameters,
+        is_instrument = false,
+      })
+    end
+  end
+
+  -- Instruments (their device chains)
+  for i_idx, instrument in ipairs(song.instruments) do
+    -- Sample device chain
+    local sample_chain = instrument.sample_device_chain
+    if sample_chain then
+      for d_idx, device in ipairs(sample_chain.devices) do
+        table.insert(all_devices, {
+          track_index = -1000 - i_idx,
+          track_name = "Instrument: " .. instrument.name,
+          device_index = d_idx,
+          device = device,
+          device_name = device.name,
+          device_path = tostring(device.device_path),
+          is_active = device.is_active,
+          parameter_count = #device.parameters,
+          is_instrument = true,
+          instrument_index = i_idx,
+        })
+      end
+    end
+    -- Note: phrase/effect device chains could be added similarly
+  end
+
+  return all_devices
 end
 
 -- -----------------------------------------------------------------------------
--- Insert a device by path into track 1
+-- Get the currently selected device
 -- -----------------------------------------------------------------------------
-local function insert_device(device_path)
+local function get_selected_device()
   local song = renoise.song()
-  local track = song.tracks[1]
-  return track:insert_device_at(device_path, 1)
+  local track = song.selected_track
+  if not track or #track.devices == 0 then
+    return nil
+  end
+  local idx = song.selected_device_index
+  if idx and idx >= 1 and idx <= #track.devices then
+    return track.devices[idx]
+  end
+  return nil
 end
 
 -- -----------------------------------------------------------------------------
--- Export full parameter data to JSON
+-- Export full parameter data for a single device to JSON
 -- -----------------------------------------------------------------------------
-local function export_parameters_json(device, filepath)
+local function export_device_json(device, filepath)
   local params = device.parameters
   local data = {
     plugin_name = device.name,
@@ -130,7 +206,59 @@ local function export_parameters_json(device, filepath)
 end
 
 -- -----------------------------------------------------------------------------
--- Human-readable summary
+-- Export ALL devices to a single JSON file
+-- -----------------------------------------------------------------------------
+local function export_all_devices_json(all_devices, filepath)
+  local data = {
+    total_devices = #all_devices,
+    devices = {}
+  }
+
+  for _, entry in ipairs(all_devices) do
+    local device = entry.device
+    local params = device.parameters
+    local dev_data = {
+      track_index = entry.track_index,
+      track_name = entry.track_name,
+      device_index = entry.device_index,
+      device_name = entry.device_name,
+      device_path = entry.device_path,
+      is_active = entry.is_active,
+      parameter_count = entry.parameter_count,
+      presets = device.presets,
+      active_preset = device.active_preset,
+      parameters = {}
+    }
+
+    for i, param in ipairs(params) do
+      table.insert(dev_data.parameters, {
+        index = i,
+        name = param.name,
+        value = param.value,
+        value_min = param.value_min,
+        value_max = param.value_max,
+        value_default = param.value_default,
+        value_quantum = param.value_quantum,
+        is_automatable = param.is_automatable,
+        polarity = tostring(param.polarity),
+        value_string = tostring(param.value_string)
+      })
+    end
+
+    table.insert(data.devices, dev_data)
+  end
+
+  local f = io.open(filepath, "w")
+  if f then
+    f:write(json_encode(data))
+    f:close()
+    return true
+  end
+  return false
+end
+
+-- -----------------------------------------------------------------------------
+-- Human-readable summary for a single device
 -- -----------------------------------------------------------------------------
 local function export_summary(device, filepath)
   local params = device.parameters
@@ -160,7 +288,7 @@ local function export_summary(device, filepath)
 end
 
 -- -----------------------------------------------------------------------------
--- Apply parameters from a mapping table
+-- Apply parameters from a mapping table to a device
 -- mapping = { {name="Filter Cutoff", value=0.7}, ... }
 -- -----------------------------------------------------------------------------
 local function apply_parameters(device, mapping)
@@ -185,7 +313,7 @@ local function apply_parameters(device, mapping)
     end
 
     if not found then
-      -- Fuzzy match: check if target_name is contained in param.name or vice versa
+      -- Fuzzy match
       for i, param in ipairs(params) do
         if param.name:lower():find(target_name:lower(), 1, true)
            or target_name:lower():find(param.name:lower(), 1, true) then
@@ -209,82 +337,64 @@ local function apply_parameters(device, mapping)
 end
 
 -- -----------------------------------------------------------------------------
--- Get the currently selected device from the song
--- -----------------------------------------------------------------------------
-local function get_selected_device()
-  local song = renoise.song()
-  local track = song.selected_track
-  if not track or #track.devices == 0 then
-    return nil
-  end
-  local idx = song.selected_device_index
-  if idx and idx >= 1 and idx <= #track.devices then
-    return track.devices[idx]
-  end
-  return nil
-end
-
--- -----------------------------------------------------------------------------
 -- Menu Actions
 -- -----------------------------------------------------------------------------
 
-local function list_and_dump_devices()
-  local devices = get_available_devices()
-  if #devices == 0 then
+-- Dump ALL devices from ALL tracks to JSON
+local function dump_all_devices()
+  local all_devices = collect_all_devices()
+
+  if #all_devices == 0 then
     show_prompt("No Devices",
-      "No VST3/AudioUnit devices found.\nScan plugins in Preferences > Plug-ins.")
+      "No devices found in any track.\nLoad some VST3 plugins into tracks first.")
     return
   end
 
+  -- Export all devices to JSON
+  export_all_devices_json(all_devices, JSON_FILE)
+
+  -- Build summary text
   local lines = {}
-  table.insert(lines, "=== Available VST3 / AudioUnit Devices ===")
-  for i, path in ipairs(devices) do
-    table.insert(lines, string.format("  [%d] %s", i, path))
+  table.insert(lines, string.format("=== All Devices (%d total) ===", #all_devices))
+  table.insert(lines, "")
+  for _, entry in ipairs(all_devices) do
+    table.insert(lines, string.format("  Track [%d] %-20s | Device [%d] %-30s | %d params",
+      entry.track_index, entry.track_name, entry.device_index,
+      entry.device_name, entry.parameter_count))
   end
   table.insert(lines, "")
-
-  local first_path = devices[1]
-  local ok, device = pcall(insert_device, first_path)
-
-  if not ok or not device then
-    table.insert(lines, string.format("  ERROR inserting %s: %s", first_path, tostring(device)))
-  else
-    table.insert(lines, string.format("=== Parameters of: %s ===", device.name))
-    -- Export JSON
-    export_parameters_json(device, JSON_FILE)
-    -- Export summary
-    export_summary(device, SUMMARY_FILE)
-    table.insert(lines, string.format("Exported %d parameters to %s", #device.parameters, JSON_FILE))
-    table.insert(lines, string.format("Summary written to %s", SUMMARY_FILE))
-  end
+  table.insert(lines, "Exported to: " .. JSON_FILE)
+  table.insert(lines, "")
+  table.insert(lines, "Use the Python pipeline to classify preset type:")
+  table.insert(lines, "  python3 vst3_preset_pipeline.py --input " .. JSON_FILE .. " --classify --search --suggest")
 
   local output = table.concat(lines, "\n")
-  local display = output:sub(1, 2500)
-  if #output > 2500 then display = display .. "\n... (see " .. SUMMARY_FILE .. ")" end
-  show_prompt("VST3 Devices", display)
+  local display = output:sub(1, 3000)
+  if #output > 3000 then display = display .. "\n... (see " .. JSON_FILE .. ")" end
+  show_prompt("All Devices Dumped", display)
 end
 
+-- Dump the currently selected device
 local function dump_selected_device()
   local device = get_selected_device()
   if not device then
     show_prompt("No Device",
-      "No device selected. Select a device in the device chain first.")
+      "No device selected.\nClick on a device in any track's device chain first.")
     return
   end
 
-  export_parameters_json(device, JSON_FILE)
+  export_device_json(device, JSON_FILE)
   export_summary(device, SUMMARY_FILE)
 
-  local dump = ""
-  dump = dump .. string.format("=== Device: %s ===\n", device.name)
+  local dump = string.format("=== Device: %s ===\n", device.name)
+  dump = dump .. string.format("Track: %s\n", tostring(renoise.song().selected_track.name))
   dump = dump .. string.format("Parameters: %d\n", #device.parameters)
   dump = dump .. string.format("Exported to %s\n", JSON_FILE)
 
   show_prompt("Device: " .. device.name, dump)
 end
 
--- Apply a preset mapping from JSON file
--- File format: { [{"name": "Param Name", "value": 0.5}, ...] }
+-- Apply a preset mapping from JSON file to the selected device
 local function apply_preset_from_json(filepath)
   local device = get_selected_device()
   if not device then
@@ -300,10 +410,6 @@ local function apply_preset_from_json(filepath)
   local content = f:read("*all")
   f:close()
 
-  -- Simple JSON array parser for our format
-  -- We expect: [{"name":"...","value":0.5}, ...]
-  local mapping = {}
-  -- Very basic parsing - split by },{
   local entries = {}
   for entry in content:gmatch("%b{}") do
     local name = entry:match('"name"%s*:%s*"([^"]*)"')
@@ -314,7 +420,8 @@ local function apply_preset_from_json(filepath)
   end
 
   local applied, results = apply_parameters(device, entries)
-  local msg = string.format("Applied %d/%d parameters:\n", applied, #entries)
+  local msg = string.format("Applied %d/%d parameters to '%s':\n",
+    applied, #entries, device.name)
   for i = 1, math.min(#results, 30) do
     msg = msg .. results[i] .. "\n"
   end
@@ -327,8 +434,8 @@ end
 -- -----------------------------------------------------------------------------
 
 renoise.tool():add_menu_entry {
-  name = "Main Menu:Tools:VST3 Parameter Tool:List Devices & Export JSON",
-  invoke = list_and_dump_devices
+  name = "Main Menu:Tools:VST3 Parameter Tool:Dump All Devices (All Tracks)",
+  invoke = dump_all_devices
 }
 
 renoise.tool():add_menu_entry {

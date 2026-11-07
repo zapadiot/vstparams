@@ -91,25 +91,6 @@ local function collect_all_devices()
     end
   end
 
-  -- Send tracks
-  for s_idx, track in ipairs(song.send_tracks) do
-    for d_idx, device in ipairs(track.devices) do
-      table.insert(all_devices, {
-        track_index = -s_idx,
-        track_name = "Send " .. s_idx,
-        device_index = d_idx,
-        device = device,
-        device_name = device.name,
-        device_path = tostring(device.device_path),
-        is_active = device.is_active,
-        parameter_count = #device.parameters,
-        is_instrument = false,
-        instrument_index = nil,
-        chain_index = nil,
-      })
-    end
-  end
-
   -- Master track
   local master = song.master_track
   if master then
@@ -500,7 +481,7 @@ renoise.tool():add_menu_entry {
 renoise.tool():add_menu_entry {
   name = "Main Menu:Tools:VST3 Parameter Tool:Apply Preset from JSON",
   invoke = function()
-    local path = renoise.app():prompt_for_filename_to_read("json", "Select preset JSON")
+    local path = renoise.app():prompt_for_filename_to_read({"json"}, "Select preset JSON")
     if path then apply_preset_from_json(path) end
   end
 }

@@ -66,7 +66,7 @@ local function json_encode(t)
 end
 
 -- -----------------------------------------------------------------------------
--- Collect ALL devices from ALL tracks (including master and send tracks)
+-- Collect ALL devices from ALL tracks AND instruments
 -- -----------------------------------------------------------------------------
 local function collect_all_devices()
   local song = renoise.song()
@@ -85,6 +85,8 @@ local function collect_all_devices()
         is_active = device.is_active,
         parameter_count = #device.parameters,
         is_instrument = false,
+        instrument_index = nil,
+        chain_index = nil,
       })
     end
   end
@@ -93,7 +95,7 @@ local function collect_all_devices()
   for s_idx, track in ipairs(song.send_tracks) do
     for d_idx, device in ipairs(track.devices) do
       table.insert(all_devices, {
-        track_index = -s_idx, -- negative = send track
+        track_index = -s_idx,
         track_name = "Send " .. s_idx,
         device_index = d_idx,
         device = device,
@@ -102,6 +104,8 @@ local function collect_all_devices()
         is_active = device.is_active,
         parameter_count = #device.parameters,
         is_instrument = false,
+        instrument_index = nil,
+        chain_index = nil,
       })
     end
   end
@@ -120,13 +124,14 @@ local function collect_all_devices()
         is_active = device.is_active,
         parameter_count = #device.parameters,
         is_instrument = false,
+        instrument_index = nil,
+        chain_index = nil,
       })
     end
   end
 
-  -- Instruments (their device chains)
+  -- Instruments (their sample device chains)
   for i_idx, instrument in ipairs(song.instruments) do
-    -- Sample device chain
     local sample_chain = instrument.sample_device_chain
     if sample_chain then
       for d_idx, device in ipairs(sample_chain.devices) do
@@ -141,28 +146,59 @@ local function collect_all_devices()
           parameter_count = #device.parameters,
           is_instrument = true,
           instrument_index = i_idx,
+          chain_index = 1,
         })
       end
     end
-    -- Note: phrase/effect device chains could be added similarly
   end
 
   return all_devices
 end
 
 -- -----------------------------------------------------------------------------
--- Get the currently selected device
+-- Get the currently selected device (track OR instrument)
+-- Returns: {device = renoise.AudioDevice, context = "track"|"instrument",
+--           track_index, track_name, instrument_index, chain_index}
 -- -----------------------------------------------------------------------------
 local function get_selected_device()
   local song = renoise.song()
+
+  -- Try track device first
   local track = song.selected_track
-  if not track or #track.devices == 0 then
-    return nil
+  if track and #track.devices > 0 then
+    local idx = song.selected_device_index
+    if idx and idx >= 1 and idx <= #track.devices then
+      return {
+        device = track.devices[idx],
+        context = "track",
+        track_index = song.selected_track_index,
+        track_name = track.name,
+        instrument_index = nil,
+        chain_index = nil,
+      }
+    end
   end
-  local idx = song.selected_device_index
-  if idx and idx >= 1 and idx <= #track.devices then
-    return track.devices[idx]
+
+  -- Try instrument device chain
+  local instrument = song.selected_instrument
+  if instrument then
+    local chain_idx = song.selected_sample_device_chain_index or 1
+    local chain = instrument:sample_device_chain(chain_idx)
+    if chain and #chain.devices > 0 then
+      -- Try selected_device_index on instrument chain too
+      local idx = song.selected_device_index
+      local dev_idx = (idx and idx >= 1 and idx <= #chain.devices) and idx or 1
+      return {
+        device = chain.devices[dev_idx],
+        context = "instrument",
+        track_index = nil,
+        track_name = "Instrument: " .. instrument.name,
+        instrument_index = song.selected_instrument_index,
+        chain_index = chain_idx,
+      }
+    end
   end
+
   return nil
 end
 
@@ -275,7 +311,7 @@ local function export_summary(device, filepath)
 
   for i, param in ipairs(params) do
     local auto_str = param.is_automatable and "yes" or "no"
-    table.insert(lines, string.format("%-5d %-40s %-10.6f %-12.6f %-12.6f %-12.6f %-10.6f %-10s",
+    table.insert(lines, string.format("%-5d %-40s %-10.6f %-12.6f %-12s %-12s %-10.6f %-10s",
       i, param.name:sub(1, 38), param.value, param.value_min,
       param.value_max, param.value_default, param.value_quantum, auto_str))
   end
@@ -340,13 +376,13 @@ end
 -- Menu Actions
 -- -----------------------------------------------------------------------------
 
--- Dump ALL devices from ALL tracks to JSON
+-- Dump ALL devices from ALL tracks AND instruments to JSON
 local function dump_all_devices()
   local all_devices = collect_all_devices()
 
   if #all_devices == 0 then
     show_prompt("No Devices",
-      "No devices found in any track.\nLoad some VST3 plugins into tracks first.")
+      "No devices found in any track or instrument.\nLoad some VST3 plugins first.")
     return
   end
 
@@ -358,14 +394,15 @@ local function dump_all_devices()
   table.insert(lines, string.format("=== All Devices (%d total) ===", #all_devices))
   table.insert(lines, "")
   for _, entry in ipairs(all_devices) do
-    table.insert(lines, string.format("  Track [%d] %-20s | Device [%d] %-30s | %d params",
-      entry.track_index, entry.track_name, entry.device_index,
+    local ctx = entry.is_instrument and "INSTRUMENT" or "TRACK"
+    table.insert(lines, string.format("  [%s] Track[%d] %-20s | Dev[%d] %-30s | %d params",
+      ctx, entry.track_index, entry.track_name, entry.device_index,
       entry.device_name, entry.parameter_count))
   end
   table.insert(lines, "")
   table.insert(lines, "Exported to: " .. JSON_FILE)
   table.insert(lines, "")
-  table.insert(lines, "Use the Python pipeline to classify preset type:")
+  table.insert(lines, "Classify preset type with the Python pipeline:")
   table.insert(lines, "  python3 vst3_preset_pipeline.py --input " .. JSON_FILE .. " --classify --search --suggest")
 
   local output = table.concat(lines, "\n")
@@ -374,20 +411,24 @@ local function dump_all_devices()
   show_prompt("All Devices Dumped", display)
 end
 
--- Dump the currently selected device
+-- Dump the currently selected device (track or instrument)
 local function dump_selected_device()
-  local device = get_selected_device()
-  if not device then
+  local result = get_selected_device()
+  if not result then
     show_prompt("No Device",
-      "No device selected.\nClick on a device in any track's device chain first.")
+      "No device selected.\nClick on a device in any track or instrument device chain first.")
     return
   end
 
+  local device = result.device
   export_device_json(device, JSON_FILE)
   export_summary(device, SUMMARY_FILE)
 
   local dump = string.format("=== Device: %s ===\n", device.name)
-  dump = dump .. string.format("Track: %s\n", tostring(renoise.song().selected_track.name))
+  dump = dump .. string.format("Context: %s\n", result.context)
+  if result.track_name then
+    dump = dump .. string.format("Track: %s\n", result.track_name)
+  end
   dump = dump .. string.format("Parameters: %d\n", #device.parameters)
   dump = dump .. string.format("Exported to %s\n", JSON_FILE)
 
@@ -396,11 +437,13 @@ end
 
 -- Apply a preset mapping from JSON file to the selected device
 local function apply_preset_from_json(filepath)
-  local device = get_selected_device()
-  if not device then
+  local result = get_selected_device()
+  if not result then
     show_prompt("No Device", "No device selected.")
     return
   end
+
+  local device = result.device
 
   local f = io.open(filepath, "r")
   if not f then
@@ -434,7 +477,7 @@ end
 -- -----------------------------------------------------------------------------
 
 renoise.tool():add_menu_entry {
-  name = "Main Menu:Tools:VST3 Parameter Tool:Dump All Devices (All Tracks)",
+  name = "Main Menu:Tools:VST3 Parameter Tool:Dump All Devices (All Tracks + Instruments)",
   invoke = dump_all_devices
 }
 
